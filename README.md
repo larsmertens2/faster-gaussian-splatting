@@ -142,7 +142,7 @@ We thank the authors of the following works, whose ideas and open-source impleme
 - Yu et al. [_Mip-Splatting: Alias-free 3D Gaussian Splatting._](https://niujinshuchong.github.io/mip-splatting/) CVPR 2024.
 - Kheradmand et al. [_3D Gaussian Splatting as Markov Chain Monte Carlo._](https://ubc-vision.github.io/3dgs-mcmc/) NeurIPS 2024.
 
-We also thank [Janusch Patas (aka. MrNeRF)](https://github.com/MrNeRF) for partially inspiring this project with his open-source bounty for [LichtFeld Stuido](https://lichtfeld.io/), where an early version of our work was the [winning submission](https://github.com/MrNeRF/LichtFeld-Studio/pull/245) and has since become one of its core components.
+We also thank [Janusch Patas (aka. MrNeRF)](https://github.com/MrNeRF) for partially inspiring this project with his open-source bounty for [LichtFeld Studio](https://lichtfeld.io/), where an early version of our work was the [winning submission](https://github.com/MrNeRF/LichtFeld-Studio/pull/245) and has since become one of its core components.
 
 
 ## License and Citation
@@ -156,10 +156,10 @@ If you use this project in your research, please cite our paper:
   title         = {Faster-GS: Analyzing and Improving Gaussian Splatting Optimization},
   author        = {Florian Hahlbohm and Linus Franke and Martin Eisemann and Marcus Magnor},
   year          = {2026},
-  eprint        = {2602.xxxxx},
+  eprint        = {2602.09999},
   archivePrefix = {arXiv},
   primaryClass  = {cs.CV},
-  url           = {https://arxiv.org/abs/2602.xxxxx},
+  url           = {https://arxiv.org/abs/2602.09999},
 }
 ```
 
