@@ -67,7 +67,7 @@ class FasterGSRenderer(BaseRenderer):
 
     def render_image_training(self, view: View, update_densification_info: bool, bg_color: torch.Tensor) -> torch.Tensor:
         """Renders an image for a given view."""
-        image, contribution = diff_rasterize(
+        image = diff_rasterize(
             means=self.model.gaussians.means,
             scales=self.model.gaussians.raw_scales,
             rotations=self.model.gaussians.raw_rotations,
@@ -82,7 +82,7 @@ class FasterGSRenderer(BaseRenderer):
     @torch.no_grad()
     def render_image_inference(self, view: View, to_chw: bool = False) -> dict[str, torch.Tensor]:
         """Renders an image for a given view."""
-        image,contribution = diff_rasterize(
+        image = diff_rasterize(
             means=self.model.gaussians.means,
             scales=self.model.gaussians.raw_scales + math.log(max(self.SCALE_MODIFIER, 1e-6)),
             rotations=self.model.gaussians.raw_rotations,
@@ -98,7 +98,7 @@ class FasterGSRenderer(BaseRenderer):
     @torch.inference_mode()
     def render_image_benchmark(self, view: View, to_chw: bool = False) -> dict[str, torch.Tensor]:
         """Renders an image for a given view."""
-        image = rasterize(
+        image, contribution = rasterize(
             means=self.model.gaussians.means,
             scales=self.model.gaussians.raw_scales,
             rotations=self.model.gaussians.raw_rotations,
@@ -108,7 +108,13 @@ class FasterGSRenderer(BaseRenderer):
             rasterizer_settings=extract_settings(view, self.model.gaussians.active_sh_bases, view.camera.background_color, self.PROPER_ANTIALIASING),
             to_chw=to_chw
         )
-        return {'rgb': image}
+        
+        print("--- Contribution Stats ---")
+        print(f"Zichtbare Gaussians: {(contribution > 0).sum().item()}")
+        print(f"Max contribution: {contribution.max().item():.4f}")
+
+        image = image.clamp(0.0, 1.0)
+        return {'rgb': image if to_chw else image.permute(1, 2, 0)}
 
     def postprocess_outputs(self, outputs: dict[str, torch.Tensor], *_) -> dict[str, torch.Tensor]:
         """Postprocesses the model outputs, returning tensors of shape 3xHxW."""

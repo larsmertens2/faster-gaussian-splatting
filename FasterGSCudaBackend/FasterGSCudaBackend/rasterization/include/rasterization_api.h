@@ -58,7 +58,7 @@ namespace faster_gs::rasterization {
         const int n_buckets,
         const int instance_primitive_indices_selector);
 
-    std::tuple<torch::Tensor, torch::tensor>
+    std::tuple<torch::Tensor, torch::Tensor>
     inference_wrapper(
         const torch::Tensor& means,
         const torch::Tensor& scales,
