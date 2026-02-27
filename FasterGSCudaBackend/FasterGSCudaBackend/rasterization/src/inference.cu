@@ -22,6 +22,7 @@ void faster_gs::rasterization::inference(
     const float3* cam_position,
     const float3* bg_color,
     float* image,
+    float* contribution,
     const int n_primitives,
     const int active_sh_bases,
     const int total_sh_bases,
@@ -138,6 +139,7 @@ void faster_gs::rasterization::inference(
         block, \
         bg_color, \
         image, \
+        contribution, \
         memset_stream, \
         n_visible_primitives, \
         n_instances, \
@@ -159,6 +161,7 @@ void faster_gs::rasterization::rasterize(
     const dim3& block,
     const float3* bg_color,
     float* image,
+    float* contribution,
     const cudaStream_t memset_stream,
     const int n_visible_primitives,
     const int n_instances,
@@ -212,6 +215,7 @@ void faster_gs::rasterization::rasterize(
         primitive_buffers.color,
         bg_color,
         image,
+        contribution,
         width,
         height,
         grid.x,

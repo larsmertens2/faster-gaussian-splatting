@@ -176,7 +176,7 @@ faster_gs::rasterization::backward_wrapper(
     return {grad_means, grad_scales, grad_rotations, grad_opacities, grad_sh_coefficients_0, grad_sh_coefficients_rest};
 }
 
-torch::Tensor
+std::tuple<torch::Tensor, torch::Tensor>
 faster_gs::rasterization::inference_wrapper(
     const torch::Tensor& means,
     const torch::Tensor& scales,
@@ -203,7 +203,10 @@ faster_gs::rasterization::inference_wrapper(
     const int total_sh_bases = sh_coefficients_rest.size(1);
     const torch::TensorOptions float_options = torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA);
     const torch::TensorOptions byte_options = torch::TensorOptions().dtype(torch::kByte).device(torch::kCUDA);
+
     torch::Tensor image = to_chw ? torch::empty({3, height, width}, float_options) : torch::empty({height, width, 3}, float_options);
+    torch::Tensor contribution = torch::zeros({ n_primitives }, float_options);
+
     torch::Tensor primitive_buffers = torch::empty({0}, byte_options);
     torch::Tensor tile_buffers = torch::empty({0}, byte_options);
     torch::Tensor instance_buffers = torch::empty({0}, byte_options);
@@ -225,6 +228,7 @@ faster_gs::rasterization::inference_wrapper(
         reinterpret_cast<float3*>(cam_position.contiguous().data_ptr<float>()),
         reinterpret_cast<float3*>(bg_color.contiguous().data_ptr<float>()),
         image.data_ptr<float>(),
+        contribution.data_ptr<float>(),
         n_primitives,
         active_sh_bases,
         total_sh_bases,
@@ -240,5 +244,5 @@ faster_gs::rasterization::inference_wrapper(
         to_chw
     );
 
-    return image;
+    return std::make_tuple(image, contribution);
 }

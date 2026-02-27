@@ -354,6 +354,7 @@ namespace faster_gs::rasterization::kernels::inference {
         const float3* __restrict__ primitive_color,
         const float3* __restrict__ bg_color,
         float* __restrict__ image,
+        float* __restrict__ contribution,
         const uint width,
         const uint height,
         const uint grid_width,
@@ -370,6 +371,7 @@ namespace faster_gs::rasterization::kernels::inference {
         __shared__ float2 collected_mean2d[config::block_size_blend];
         __shared__ float4 collected_conic_opacity[config::block_size_blend];
         __shared__ float3 collected_color[config::block_size_blend];
+        __shared__ uint collected_id[config::block_size_blend];
         // initialize local storage
         float3 color_pixel = make_float3(0.0f);
         float transmittance = 1.0f;
@@ -380,6 +382,7 @@ namespace faster_gs::rasterization::kernels::inference {
             if (__syncthreads_count(done) == config::block_size_blend) break;
             if (current_fetch_idx < tile_range.y) {
                 const uint primitive_idx = instance_primitive_indices[current_fetch_idx];
+                collected_id[thread_rank] = primitive_idx;
                 collected_mean2d[thread_rank] = primitive_mean2d[primitive_idx];
                 collected_conic_opacity[thread_rank] = primitive_conic_opacity[primitive_idx];
                 collected_color[thread_rank] = primitive_color[primitive_idx];
@@ -398,8 +401,12 @@ namespace faster_gs::rasterization::kernels::inference {
                 const float alpha = opacity * gaussian;
                 if (config::original_opacity_interpretation && alpha < config::min_alpha_threshold) continue;
 
+                
+				const float weight = transmittance * alpha;
                 // blend fragment into pixel color
-                color_pixel += transmittance * alpha * collected_color[j];
+                color_pixel += weight * collected_color[j];
+
+                atomicAdd(&contribution[collected_id[j]], weight);
 
                 // update transmittance
                 transmittance *= 1.0f - alpha;

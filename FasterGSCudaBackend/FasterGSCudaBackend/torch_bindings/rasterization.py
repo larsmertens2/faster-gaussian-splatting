@@ -119,8 +119,9 @@ def diff_rasterize(
     sh_coefficients_rest: torch.Tensor,
     densification_info: torch.Tensor,
     rasterizer_settings: RasterizerSettings,
-) -> torch.Tensor:
-    return _Rasterize.apply(
+) -> tuple[torch.Tensor, torch.Tensor]:
+
+    image, contribution = _Rasterize.apply(
         means,
         scales,
         rotations,
@@ -130,6 +131,7 @@ def diff_rasterize(
         densification_info,
         rasterizer_settings,
     )
+    return image, contribution
 
 
 def rasterize(

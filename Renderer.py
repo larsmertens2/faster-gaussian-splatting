@@ -67,7 +67,7 @@ class FasterGSRenderer(BaseRenderer):
 
     def render_image_training(self, view: View, update_densification_info: bool, bg_color: torch.Tensor) -> torch.Tensor:
         """Renders an image for a given view."""
-        image = diff_rasterize(
+        image, contribution = diff_rasterize(
             means=self.model.gaussians.means,
             scales=self.model.gaussians.raw_scales,
             rotations=self.model.gaussians.raw_rotations,
@@ -82,7 +82,7 @@ class FasterGSRenderer(BaseRenderer):
     @torch.no_grad()
     def render_image_inference(self, view: View, to_chw: bool = False) -> dict[str, torch.Tensor]:
         """Renders an image for a given view."""
-        image = diff_rasterize(
+        image,contribution = diff_rasterize(
             means=self.model.gaussians.means,
             scales=self.model.gaussians.raw_scales + math.log(max(self.SCALE_MODIFIER, 1e-6)),
             rotations=self.model.gaussians.raw_rotations,
