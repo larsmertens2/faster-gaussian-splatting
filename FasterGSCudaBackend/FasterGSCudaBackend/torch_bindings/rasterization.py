@@ -153,6 +153,16 @@ def rasterize(
         *rasterizer_settings.as_tuple(),
         to_chw,
     )
+    
+     
      image = outputs[0]
      contribution = outputs[1]
+
+     print(contribution.shape)
+
+     print(image)
+     print(contribution)
+     print(image.size())
+     print(contribution.size())
+     print(f"Contribution min: {contribution.min()}, max: {contribution.max()}")
      return image, contribution
