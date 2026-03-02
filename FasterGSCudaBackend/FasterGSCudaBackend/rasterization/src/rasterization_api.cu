@@ -244,7 +244,5 @@ faster_gs::rasterization::inference_wrapper(
         to_chw
     );
 
-    torch::Tensor contribution = torch::zeros({ n_primitives }, float_options);
-
     return std::make_tuple(image, contribution);
 }
