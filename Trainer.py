@@ -1,10 +1,13 @@
 """FasterGS/Trainer.py"""
 
+from copy import deepcopy
+
 import torch
+import numpy as np
 
 import Framework
-from Datasets.Base import BaseDataset
-from Datasets.utils import BasicPointCloud, apply_background_color
+from Datasets.Base import BaseDataset, View
+from Datasets.utils import BasicPointCloud, apply_background_color,look_at
 from Logging import Logger
 from Methods.Base.GuiTrainer import GuiTrainer
 from Methods.Base.utils import pre_training_callback, training_callback, post_training_callback
@@ -75,6 +78,52 @@ class FasterGSTrainer(GuiTrainer):
     def create_sampler(self, _, dataset: 'BaseDataset') -> None:
         """Creates the sampler."""
         self.train_sampler = DatasetSampler(dataset=dataset.train(), random=True)
+
+
+
+    @pre_training_callback(priority=50)
+    @torch.no_grad()
+    def add_cameras_sphere(self, _, dataset: 'BaseDataset') -> None:
+
+        # six axis-aligned directions on unit sphere
+        dirs = np.array([[ 1,  0,  0],
+                        [-1,  0,  0],
+                        [ 0,  1,  0],
+                        [ 0, -1,  0],
+                        [ 0,  0,  1],
+                        [ 0,  0, -1]], dtype=np.float64)
+
+        base_cam = dataset.default_camera            # reuse intrinsics
+        radius = 1.0                                 # or compute from bounding box
+        frame_idx = len(dataset.data['test'])
+        global_idx = max(len(dataset.data[s]) for s in dataset.subsets)
+
+        for d in dirs:                              # make a new camera slot
+            cam_idx = len(dataset.cameras)
+            dataset.cameras.append(deepcopy(base_cam))  # same intrinsics, separate instance
+
+            eye = d * radius
+            up = np.array([0, 1, 0], dtype=np.float64)
+            if abs(d[1]) > 0.9:  # avoid collinearity for top/bottom views
+                up = np.array([0, 0, 1], dtype=np.float64)
+            c2w = look_at(
+                eye,
+                np.zeros(3, dtype=np.float64),
+                up
+            )
+
+            view = View(
+                camera=dataset.cameras[cam_idx],
+                camera_index=cam_idx,
+                frame_idx=frame_idx,
+                global_frame_idx=global_idx,
+                c2w=c2w,
+                timestamp=0.0
+            )
+            dataset.data['test'].append(view)
+            frame_idx += 1
+            global_idx += 1
+        
 
     @pre_training_callback(priority=40)
     @torch.no_grad()
