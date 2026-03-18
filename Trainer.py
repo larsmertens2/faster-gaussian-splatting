@@ -4,6 +4,7 @@ from copy import deepcopy
 
 import torch
 import numpy as np
+import torchvision
 
 import Framework
 from Datasets.Base import BaseDataset, View
@@ -94,12 +95,16 @@ class FasterGSTrainer(GuiTrainer):
                         [ 0,  0, -1]], dtype=np.float64)
 
         base_cam = dataset.default_camera            # reuse intrinsics
-        radius = 1.0                                 # or compute from bounding box
-        frame_idx = len(dataset.data['test'])
+
+        radius = 5.0                                 # or compute from bounding box
+        frame_idx = len(dataset.data['train'])
         global_idx = max(len(dataset.data[s]) for s in dataset.subsets)
 
+        safe_far_plane = radius + 10.0
         for d in dirs:                              # make a new camera slot
             cam_idx = len(dataset.cameras)
+            base_cam.shared_settings.far_plane = safe_far_plane
+            base_cam.shared_settings.near_plane = 0.1
             dataset.cameras.append(deepcopy(base_cam))  # same intrinsics, separate instance
 
             eye = d * radius
@@ -120,7 +125,7 @@ class FasterGSTrainer(GuiTrainer):
                 c2w=c2w,
                 timestamp=0.0
             )
-            dataset.data['test'].append(view)
+            dataset.data['train'].append(view)
             frame_idx += 1
             global_idx += 1
         
@@ -217,14 +222,16 @@ class FasterGSTrainer(GuiTrainer):
             update_densification_info=not self.USE_MCMC and iteration < self.DENSIFICATION_END_ITERATION,
             bg_color=bg_color,
         )
+
+        torchvision.utils.save_image(image, f'output/test{view.frame_idx}.png')
         # calculate loss
-        # compose gt with background color if needed  # FIXME: integrate into data model
-        rgb_gt = view.rgb
-        if (alpha_gt := view.alpha) is not None:
-            rgb_gt = apply_background_color(rgb_gt, alpha_gt, bg_color)
-        loss = self.loss(image, rgb_gt)
-        # backward
-        loss.backward()
+        # # compose gt with background color if needed  # FIXME: integrate into data model
+        # rgb_gt = view.rgb
+        # if (alpha_gt := view.alpha) is not None:
+        #     rgb_gt = apply_background_color(rgb_gt, alpha_gt, bg_color)
+        # #loss = self.loss(image, rgb_gt)
+        # # backward
+        # loss.backward()
         # optimizer step
         self.model.gaussians.optimizer.step()
         self.model.gaussians.optimizer.zero_grad()
