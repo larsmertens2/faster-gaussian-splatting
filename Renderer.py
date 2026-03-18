@@ -98,20 +98,23 @@ class FasterGSRenderer(BaseRenderer):
         if image.shape[0] == 3:
             image = image.permute(1, 2, 0).contiguous()
     
-        mask = contribution > 0
+        # mask = contribution > 0
 
-        image2, contribution = rasterize(
-        means=self.model.gaussians.means[mask],
-        scales=self.model.gaussians.raw_scales[mask],
-        rotations=self.model.gaussians.raw_rotations[mask],
-        opacities=self.model.gaussians.raw_opacities[mask],
-        sh_coefficients_0=self.model.gaussians.sh_coefficients_0[mask],
-        sh_coefficients_rest=self.model.gaussians.sh_coefficients_rest[mask],
-        rasterizer_settings=extract_settings(view, self.model.gaussians.active_sh_bases, view.camera.background_color, self.PROPER_ANTIALIASING),
-        to_chw=to_chw
-        )
+        # image2, contribution = rasterize(
+        # means=self.model.gaussians.means[mask],
+        # scales=self.model.gaussians.raw_scales[mask],
+        # rotations=self.model.gaussians.raw_rotations[mask],
+        # opacities=self.model.gaussians.raw_opacities[mask],
+        # sh_coefficients_0=self.model.gaussians.sh_coefficients_0[mask],
+        # sh_coefficients_rest=self.model.gaussians.sh_coefficients_rest[mask],
+        # rasterizer_settings=extract_settings(view, self.model.gaussians.active_sh_bases, view.camera.background_color, self.PROPER_ANTIALIASING),
+        # to_chw=to_chw
+        # )
+
+        # if image2.shape[0] == 3:
+        #     image2 = image2.permute(1, 2, 0).contiguous()
         
-        image = image - image2
+        #image = image - image2
 
 
                     

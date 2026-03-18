@@ -86,31 +86,48 @@ class FasterGSTrainer(GuiTrainer):
     @torch.no_grad()
     def add_cameras_sphere(self, _, dataset: 'BaseDataset') -> None:
 
-        # six axis-aligned directions on unit sphere
-        dirs = np.array([[ 1,  0,  0],
-                        [-1,  0,  0],
-                        [ 0,  1,  0],
-                        [ 0, -1,  0],
-                        [ 0,  0,  1],
-                        [ 0,  0, -1]], dtype=np.float64)
+        n_points = 10
+        sphere_radius = 5.0  # Distance of cameras from origin
+        
+        # 1. Vectorized Fibonacci Sphere Generation
+        i = np.arange(n_points)
+        phi = np.pi * (3. - np.sqrt(5.))
+        
+        y = 1 - (i / float(n_points - 1)) * 2
+        radius_at_y = np.sqrt(1 - y * y)
+        theta = phi * i
+        
+        x = np.cos(theta) * radius_at_y
+        z = np.sin(theta) * radius_at_y
+        
+        # Scale unit points to the desired sphere radius
+        unit_coordinates = np.stack([x, y, z], axis=1)
+        camera_positions = unit_coordinates * sphere_radius
 
-        base_cam = dataset.default_camera            # reuse intrinsics
-
-        radius = 5.0                                 # or compute from bounding box
+        # 2. Camera Setup
+        base_cam = dataset.default_camera
         frame_idx = len(dataset.data['train'])
-        global_idx = max(len(dataset.data[s]) for s in dataset.subsets)
+        # Assuming subsets is a dict of lists
+        global_idx = max((len(dataset.data[s]) for s in dataset.subsets), default=0)
+        
+        safe_far_plane = sphere_radius + 10.0
 
-        safe_far_plane = radius + 10.0
-        for d in dirs:                              # make a new camera slot
+        for eye in camera_positions:
             cam_idx = len(dataset.cameras)
-            base_cam.shared_settings.far_plane = safe_far_plane
-            base_cam.shared_settings.near_plane = 0.1
-            dataset.cameras.append(deepcopy(base_cam))  # same intrinsics, separate instance
+            
+            # Create a deep copy to ensure settings don't leak between cameras
+            new_cam = deepcopy(base_cam)
+            new_cam.shared_settings.far_plane = safe_far_plane
+            new_cam.shared_settings.near_plane = 0.1
+            dataset.cameras.append(new_cam)
 
-            eye = d * radius
+            # Determine 'up' vector to avoid gimbal lock/singularities
+            # Using y as 'up' generally, switching to z if at the poles
             up = np.array([0, 1, 0], dtype=np.float64)
-            if abs(d[1]) > 0.9:  # avoid collinearity for top/bottom views
+            if abs(eye[1] / sphere_radius) > 0.9: 
                 up = np.array([0, 0, 1], dtype=np.float64)
+
+            # Generate Camera-to-World matrix looking at [0, 0, 0]
             c2w = look_at(
                 eye,
                 np.zeros(3, dtype=np.float64),
@@ -125,6 +142,7 @@ class FasterGSTrainer(GuiTrainer):
                 c2w=c2w,
                 timestamp=0.0
             )
+            
             dataset.data['train'].append(view)
             frame_idx += 1
             global_idx += 1
@@ -223,7 +241,8 @@ class FasterGSTrainer(GuiTrainer):
             bg_color=bg_color,
         )
 
-        torchvision.utils.save_image(image, f'output/test{view.frame_idx}.png')
+        #torchvision.utils.save_image(image, f'output/test{view.frame_idx}.png')
+        
         # calculate loss
         # # compose gt with background color if needed  # FIXME: integrate into data model
         # rgb_gt = view.rgb
