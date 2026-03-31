@@ -2,7 +2,7 @@
 
 #include "rasterization_config.h"
 #include "kernel_utils.cuh"
-#include "sg_utils.cuh"
+#include "sh_utils.cuh"
 #include "buffer_utils.h"
 #include "helper_math.h"
 #include "utils.h"
