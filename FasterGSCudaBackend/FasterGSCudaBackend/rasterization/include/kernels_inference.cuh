@@ -2,7 +2,7 @@
 
 #include "rasterization_config.h"
 #include "kernel_utils.cuh"
-#include "sh_utils.cuh"
+#include "sg_utils.cuh"
 #include "buffer_utils.h"
 #include "helper_math.h"
 #include "utils.h"
@@ -193,11 +193,28 @@ namespace faster_gs::rasterization::kernels::inference {
         );
         primitive_mean2d[primitive_idx] = mean2d;
         primitive_conic_opacity[primitive_idx] = make_float4(conic, opacity);
-        const float3 color = convert_sh_to_color(
-            sh_coefficients_0, sh_coefficients_rest,
-            mean3d, cam_position[0],
-            primitive_idx, active_sh_bases, total_sh_bases
+        //------------------------------------
+        // We gebruiken de DC component (sh_coefficients_0) als Amplitude (Alpha)
+        float3 test_amplitude = sh_coefficients_0[primitive_idx]; 
+
+        // We gebruiken de eerste 3 extra SH coëfficiënten als de Axis (µ)
+        // Let op: sh_coefficients_rest bevat (total_sh_bases - 1) float3's per primitive.
+        // We pakken de eerste set voor deze primitive.
+        float3 test_axis = sh_coefficients_rest[primitive_idx * (total_sh_bases - 1)];
+
+        // Voor de Sharpness (λ) gebruiken we een hardcoded getal (bijv. 5.0) 
+        // of een waarde uit de rest van de SH data om te testen.
+        float test_sharpness = 5.0f;
+        
+        const float3 color = convert_sg_to_color(
+            test_amplitude,
+            test_axis,
+            test_sharpness,
+            mean3d,
+            cam_position[0],
+            primitive_idx
         );
+        // ------------------------------
         primitive_color[primitive_idx] = fmaxf(color, 0.0f);
 
         const uint offset = atomicAdd(n_visible_primitives, 1);

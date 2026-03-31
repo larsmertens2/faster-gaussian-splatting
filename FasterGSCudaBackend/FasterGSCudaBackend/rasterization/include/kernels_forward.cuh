@@ -2,7 +2,7 @@
 
 #include "rasterization_config.h"
 #include "kernel_utils.cuh"
-#include "sh_utils.cuh"
+#include "sg_utils.cuh"
 #include "buffer_utils.h"
 #include "helper_math.h"
 #include "utils.h"
@@ -195,6 +195,8 @@ namespace faster_gs::rasterization::kernels::forward {
         );
         primitive_mean2d[primitive_idx] = mean2d;
         primitive_conic_opacity[primitive_idx] = make_float4(conic, opacity);
+
+        
         const float3 color = convert_sh_to_color(
             sh_coefficients_0, sh_coefficients_rest,
             mean3d, cam_position[0],

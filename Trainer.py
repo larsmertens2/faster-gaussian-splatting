@@ -81,72 +81,72 @@ class FasterGSTrainer(GuiTrainer):
         self.train_sampler = DatasetSampler(dataset=dataset.train(), random=True)
 
 
+###
+    # @pre_training_callback(priority=50)
+    # @torch.no_grad()
+    # def add_cameras_sphere(self, _, dataset: 'BaseDataset') -> None:
 
-    @pre_training_callback(priority=50)
-    @torch.no_grad()
-    def add_cameras_sphere(self, _, dataset: 'BaseDataset') -> None:
+    #     n_points = 10
+    #     sphere_radius = 5.0  # Distance of cameras from origin
+        
+    #     # 1. Vectorized Fibonacci Sphere Generation
+    #     i = np.arange(n_points)
+    #     phi = np.pi * (3. - np.sqrt(5.))
+        
+    #     y = 1 - (i / float(n_points - 1)) * 2
+    #     radius_at_y = np.sqrt(1 - y * y)
+    #     theta = phi * i
+        
+    #     x = np.cos(theta) * radius_at_y
+    #     z = np.sin(theta) * radius_at_y
+        
+    #     # Scale unit points to the desired sphere radius
+    #     unit_coordinates = np.stack([x, y, z], axis=1)
+    #     camera_positions = unit_coordinates * sphere_radius
 
-        n_points = 10
-        sphere_radius = 5.0  # Distance of cameras from origin
+    #     # 2. Camera Setup
+    #     base_cam = dataset.default_camera
+    #     frame_idx = len(dataset.data['train'])
+    #     # Assuming subsets is a dict of lists
+    #     global_idx = max((len(dataset.data[s]) for s in dataset.subsets), default=0)
         
-        # 1. Vectorized Fibonacci Sphere Generation
-        i = np.arange(n_points)
-        phi = np.pi * (3. - np.sqrt(5.))
-        
-        y = 1 - (i / float(n_points - 1)) * 2
-        radius_at_y = np.sqrt(1 - y * y)
-        theta = phi * i
-        
-        x = np.cos(theta) * radius_at_y
-        z = np.sin(theta) * radius_at_y
-        
-        # Scale unit points to the desired sphere radius
-        unit_coordinates = np.stack([x, y, z], axis=1)
-        camera_positions = unit_coordinates * sphere_radius
+    #     safe_far_plane = sphere_radius + 10.0
 
-        # 2. Camera Setup
-        base_cam = dataset.default_camera
-        frame_idx = len(dataset.data['train'])
-        # Assuming subsets is a dict of lists
-        global_idx = max((len(dataset.data[s]) for s in dataset.subsets), default=0)
-        
-        safe_far_plane = sphere_radius + 10.0
-
-        for eye in camera_positions:
-            cam_idx = len(dataset.cameras)
+    #     for eye in camera_positions:
+    #         cam_idx = len(dataset.cameras)
             
-            # Create a deep copy to ensure settings don't leak between cameras
-            new_cam = deepcopy(base_cam)
-            new_cam.shared_settings.far_plane = safe_far_plane
-            new_cam.shared_settings.near_plane = 0.1
-            dataset.cameras.append(new_cam)
+    #         # Create a deep copy to ensure settings don't leak between cameras
+    #         new_cam = deepcopy(base_cam)
+    #         new_cam.shared_settings.far_plane = safe_far_plane
+    #         new_cam.shared_settings.near_plane = 0.1
+    #         dataset.cameras.append(new_cam)
 
-            # Determine 'up' vector to avoid gimbal lock/singularities
-            # Using y as 'up' generally, switching to z if at the poles
-            up = np.array([0, 1, 0], dtype=np.float64)
-            if abs(eye[1] / sphere_radius) > 0.9: 
-                up = np.array([0, 0, 1], dtype=np.float64)
+    #         # Determine 'up' vector to avoid gimbal lock/singularities
+    #         # Using y as 'up' generally, switching to z if at the poles
+    #         up = np.array([0, 1, 0], dtype=np.float64)
+    #         if abs(eye[1] / sphere_radius) > 0.9: 
+    #             up = np.array([0, 0, 1], dtype=np.float64)
 
-            # Generate Camera-to-World matrix looking at [0, 0, 0]
-            c2w = look_at(
-                eye,
-                np.zeros(3, dtype=np.float64),
-                up
-            )
+    #         # Generate Camera-to-World matrix looking at [0, 0, 0]
+    #         c2w = look_at(
+    #             eye,
+    #             np.zeros(3, dtype=np.float64),
+    #             up
+    #         )
 
-            view = View(
-                camera=dataset.cameras[cam_idx],
-                camera_index=cam_idx,
-                frame_idx=frame_idx,
-                global_frame_idx=global_idx,
-                c2w=c2w,
-                timestamp=0.0
-            )
+    #         view = View(
+    #             camera=dataset.cameras[cam_idx],
+    #             camera_index=cam_idx,
+    #             frame_idx=frame_idx,
+    #             global_frame_idx=global_idx,
+    #             c2w=c2w,
+    #             timestamp=0.0
+    #         )
             
-            dataset.data['train'].append(view)
-            frame_idx += 1
-            global_idx += 1
-        
+    #         dataset.data['train'].append(view)
+    #         frame_idx += 1
+    #         global_idx += 1
+
 
     @pre_training_callback(priority=40)
     @torch.no_grad()
@@ -245,12 +245,12 @@ class FasterGSTrainer(GuiTrainer):
         
         # calculate loss
         # # compose gt with background color if needed  # FIXME: integrate into data model
-        # rgb_gt = view.rgb
-        # if (alpha_gt := view.alpha) is not None:
-        #     rgb_gt = apply_background_color(rgb_gt, alpha_gt, bg_color)
-        # #loss = self.loss(image, rgb_gt)
-        # # backward
-        # loss.backward()
+        rgb_gt = view.rgb
+        if (alpha_gt := view.alpha) is not None:
+            rgb_gt = apply_background_color(rgb_gt, alpha_gt, bg_color)
+        loss = self.loss(image, rgb_gt)
+        # backward
+        loss.backward()
         # optimizer step
         self.model.gaussians.optimizer.step()
         self.model.gaussians.optimizer.zero_grad()
