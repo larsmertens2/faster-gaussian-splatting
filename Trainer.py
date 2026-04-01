@@ -61,6 +61,7 @@ from Optim.Samplers.DatasetSamplers import DatasetSampler
         LEARNING_RATE_ROTATIONS=0.001,
     ),
 )
+
 class FasterGSTrainer(GuiTrainer):
     """Defines the trainer for the FasterGS variant."""
 
@@ -72,6 +73,7 @@ class FasterGSTrainer(GuiTrainer):
                 Logger.log_info('using "expandable_segments:True" with the torch cuda memory allocator')
         super().__init__(**kwargs)
         self.train_sampler = None
+        self.eval_sphere_views = []
         self.loss = FasterGSLoss(loss_config=self.LOSS, gaussians=self.model.gaussians)
 
     @pre_training_callback(priority=50)
@@ -82,70 +84,55 @@ class FasterGSTrainer(GuiTrainer):
 
 
 ###
-    # @pre_training_callback(priority=50)
-    # @torch.no_grad()
-    # def add_cameras_sphere(self, _, dataset: 'BaseDataset') -> None:
+    @pre_training_callback(priority=50)
+    @torch.no_grad()
+    def add_cameras_sphere(self, _, dataset: 'BaseDataset') -> None:
 
-    #     n_points = 10
-    #     sphere_radius = 5.0  # Distance of cameras from origin
-        
-    #     # 1. Vectorized Fibonacci Sphere Generation
-    #     i = np.arange(n_points)
-    #     phi = np.pi * (3. - np.sqrt(5.))
-        
-    #     y = 1 - (i / float(n_points - 1)) * 2
-    #     radius_at_y = np.sqrt(1 - y * y)
-    #     theta = phi * i
-        
-    #     x = np.cos(theta) * radius_at_y
-    #     z = np.sin(theta) * radius_at_y
-        
-    #     # Scale unit points to the desired sphere radius
-    #     unit_coordinates = np.stack([x, y, z], axis=1)
-    #     camera_positions = unit_coordinates * sphere_radius
+        n_points = 2000
+        sphere_radius = 5.0  # Distance of cameras from origin
+      
+        # 1. Vectorized Fibonacci Sphere Generation
+        i = np.arange(n_points)
+        phi = np.pi * (3. - np.sqrt(5.))
+      
+        y = 1 - (i / float(n_points - 1)) * 2
+        radius_at_y = np.sqrt(1 - y * y)
+        theta = phi * i
+      
+        x = np.cos(theta) * radius_at_y
+        z = np.sin(theta) * radius_at_y
+      
+        # Scale unit points to the desired sphere radius
+        unit_coordinates = np.stack([x, y, z], axis=1)
+        camera_positions = unit_coordinates * sphere_radius
 
-    #     # 2. Camera Setup
-    #     base_cam = dataset.default_camera
-    #     frame_idx = len(dataset.data['train'])
-    #     # Assuming subsets is a dict of lists
-    #     global_idx = max((len(dataset.data[s]) for s in dataset.subsets), default=0)
-        
-    #     safe_far_plane = sphere_radius + 10.0
-
-    #     for eye in camera_positions:
-    #         cam_idx = len(dataset.cameras)
+        # 2. Camera Setup
+        base_cam = dataset.default_camera
+    
+        for eye in camera_positions:
+            # Maak een nieuwe camera aan (lokaal)
+            new_cam = deepcopy(base_cam)
+            new_cam.shared_settings.far_plane = sphere_radius + 10.0
+            new_cam.shared_settings.near_plane = 0.1
             
-    #         # Create a deep copy to ensure settings don't leak between cameras
-    #         new_cam = deepcopy(base_cam)
-    #         new_cam.shared_settings.far_plane = safe_far_plane
-    #         new_cam.shared_settings.near_plane = 0.1
-    #         dataset.cameras.append(new_cam)
+            # Bereken c2w zoals je al deed
+            up = np.array([0, 1, 0], dtype=np.float64)
+            if abs(eye[1] / sphere_radius) > 0.9: 
+                up = np.array([0, 0, 1], dtype=np.float64)
 
-    #         # Determine 'up' vector to avoid gimbal lock/singularities
-    #         # Using y as 'up' generally, switching to z if at the poles
-    #         up = np.array([0, 1, 0], dtype=np.float64)
-    #         if abs(eye[1] / sphere_radius) > 0.9: 
-    #             up = np.array([0, 0, 1], dtype=np.float64)
+            c2w = look_at(eye, np.zeros(3, dtype=np.float64), up)
 
-    #         # Generate Camera-to-World matrix looking at [0, 0, 0]
-    #         c2w = look_at(
-    #             eye,
-    #             np.zeros(3, dtype=np.float64),
-    #             up
-    #         )
-
-    #         view = View(
-    #             camera=dataset.cameras[cam_idx],
-    #             camera_index=cam_idx,
-    #             frame_idx=frame_idx,
-    #             global_frame_idx=global_idx,
-    #             c2w=c2w,
-    #             timestamp=0.0
-    #         )
+            # Maak de View aan
+            view = View(
+                camera=new_cam,
+                camera_index=-1, # -1 om aan te geven dat dit geen dataset camera is
+                frame_idx=-1,
+                global_frame_idx=len(self.eval_sphere_views),
+                c2w=c2w,
+                timestamp=0.0
+            )
             
-    #         dataset.data['train'].append(view)
-    #         frame_idx += 1
-    #         global_idx += 1
+            self.eval_sphere_views.append(view)
 
 
     @pre_training_callback(priority=40)
@@ -234,6 +221,7 @@ class FasterGSTrainer(GuiTrainer):
         # get random view
         view = self.train_sampler.get(dataset=dataset)['view']
         # render
+                
         bg_color = torch.rand_like(view.camera.background_color) if self.USE_RANDOM_BACKGROUND_COLOR else view.camera.background_color
         image = self.renderer.render_image_training(
             view=view,
@@ -244,7 +232,8 @@ class FasterGSTrainer(GuiTrainer):
         #torchvision.utils.save_image(image, f'output/test{view.frame_idx}.png')
         
         # calculate loss
-        # # compose gt with background color if needed  # FIXME: integrate into data model
+        # compose gt with background color if needed  # FIXME: integrate into data model
+
         rgb_gt = view.rgb
         if (alpha_gt := view.alpha) is not None:
             rgb_gt = apply_background_color(rgb_gt, alpha_gt, bg_color)
@@ -277,4 +266,84 @@ class FasterGSTrainer(GuiTrainer):
                 f'Final number of Gaussians: {n_gaussians:,}\n'
                 f'\n'
                 f'N_Gaussians:{n_gaussians}'
+            )
+
+    @post_training_callback(priority=900)
+    @torch.no_grad()
+    def save_contribution_per_view(self, _, dataset: 'BaseDataset') -> None:
+        """Stores one Gaussian and per-view metadata with that Gaussian's contribution."""
+        self.model.eval()
+        dataset.train()
+        output_dir = self.output_directory / 'view_contributions'
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        gaussians = self.model.gaussians
+        gaussian_index = 500
+        if gaussians.means.shape[0] == 0:
+            Logger.log_warning('no gaussians available; skipping contribution export')
+            return
+        if gaussian_index >= gaussians.means.shape[0]:
+            Logger.log_warning(f'gaussian index {gaussian_index} out of range; skipping contribution export')
+            return
+
+        # Save all available attributes for a single Gaussian.
+        sh0 = gaussians.sh_coefficients_0.detach().float().cpu().numpy()
+        gaussian_file = output_dir / f'gaussian_{gaussian_index:06d}.npz'
+        np.savez_compressed(
+            str(gaussian_file),
+            primitive_idx=np.int64(gaussian_index),
+            means=gaussians.means[gaussian_index].detach().float().cpu().numpy(),
+            scales=gaussians.scales[gaussian_index].detach().float().cpu().numpy(),
+            raw_scales=gaussians.raw_scales[gaussian_index].detach().float().cpu().numpy(),
+            rotations=gaussians.rotations[gaussian_index].detach().float().cpu().numpy(),
+            raw_rotations=gaussians.raw_rotations[gaussian_index].detach().float().cpu().numpy(),
+            opacities=gaussians.opacities[gaussian_index].detach().float().cpu().numpy(),
+            raw_opacities=gaussians.raw_opacities[gaussian_index].detach().float().cpu().numpy(),
+            sh_coefficients_0=sh0[gaussian_index],
+            sh_coefficients_rest=gaussians.sh_coefficients_rest[gaussian_index].detach().float().cpu().numpy(),
+            colors_from_sh0=(sh0[gaussian_index, 0, :] * 0.28209479177387814 + 0.5).clip(0.0, 1.0),
+            active_sh_degree=np.int64(gaussians.active_sh_degree),
+            max_sh_degree=np.int64(gaussians.max_sh_degree),
+        )
+
+        all_views_to_process = list(dataset.train()) + self.eval_sphere_views
+
+        for view in all_views_to_process:
+            outputs = self.renderer.render_image_inference(view=view)
+            contribution = outputs['contribution'][gaussian_index].detach().float().cpu().numpy()
+
+            camera = view.camera
+            focal_x = np.float32(getattr(camera, 'focal_x', np.nan))
+            focal_y = np.float32(getattr(camera, 'focal_y', np.nan))
+            center_x = np.float32(getattr(camera, 'center_x', np.nan))
+            center_y = np.float32(getattr(camera, 'center_y', np.nan))
+            distortion = getattr(camera, 'distortion', None)
+
+            output_file = output_dir / f'view_{view.global_frame_idx:06d}.npz'
+            np.savez_compressed(
+                str(output_file),
+                frame_idx=np.int64(view.frame_idx),
+                global_frame_idx=np.int64(view.global_frame_idx),
+                camera_index=np.int64(view.camera_index),
+                timestamp=np.float32(view.timestamp),
+                c2w=view.c2w_numpy.astype(np.float32),
+                w2c=view.w2c_numpy.astype(np.float32),
+                position=view.position.detach().float().cpu().numpy(),
+                forward=view.forward.detach().float().cpu().numpy(),
+                right=view.right.detach().float().cpu().numpy(),
+                up=view.up.detach().float().cpu().numpy(),
+                camera_type=np.array([type(camera).__name__], dtype=object),
+                width=np.int64(camera.width),
+                height=np.int64(camera.height),
+                near_plane=np.float32(camera.near_plane),
+                far_plane=np.float32(camera.far_plane),
+                background_color=camera.background_color.detach().float().cpu().numpy(),
+                focal_x=focal_x,
+                focal_y=focal_y,
+                center_x=center_x,
+                center_y=center_y,
+                distortion=np.array([str(distortion)], dtype=object),
+                exif=np.array([view.exif], dtype=object),
+                primitive_idx=np.int64(gaussian_index),
+                contribution=contribution,
             )
