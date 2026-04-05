@@ -1,5 +1,6 @@
 """FasterGS/Trainer.py"""
 
+import json
 from copy import deepcopy
 
 import torch
@@ -108,8 +109,10 @@ class FasterGSTrainer(GuiTrainer):
 
         # 2. Camera Setup
         base_cam = dataset.default_camera
-    
-        for eye in camera_positions:
+
+        num_train_views = len(dataset.train())
+
+        for i, eye in enumerate(camera_positions):
             # Maak een nieuwe camera aan (lokaal)
             new_cam = deepcopy(base_cam)
             new_cam.shared_settings.far_plane = sphere_radius + 10.0
@@ -125,9 +128,10 @@ class FasterGSTrainer(GuiTrainer):
             # Maak de View aan
             view = View(
                 camera=new_cam,
-                camera_index=-1, # -1 om aan te geven dat dit geen dataset camera is
+                camera_index=-1,
                 frame_idx=-1,
-                global_frame_idx=len(self.eval_sphere_views),
+                # Offset the index so filenames don't collide
+                global_frame_idx=num_train_views + i, 
                 c2w=c2w,
                 timestamp=0.0
             )
@@ -229,7 +233,6 @@ class FasterGSTrainer(GuiTrainer):
             bg_color=bg_color,
         )
 
-        #torchvision.utils.save_image(image, f'output/test{view.frame_idx}.png')
         
         # calculate loss
         # compose gt with background color if needed  # FIXME: integrate into data model
@@ -271,79 +274,132 @@ class FasterGSTrainer(GuiTrainer):
     @post_training_callback(priority=900)
     @torch.no_grad()
     def save_contribution_per_view(self, _, dataset: 'BaseDataset') -> None:
-        """Stores one Gaussian and per-view metadata with that Gaussian's contribution."""
         self.model.eval()
         dataset.train()
         output_dir = self.output_directory / 'view_contributions'
         output_dir.mkdir(parents=True, exist_ok=True)
 
         gaussians = self.model.gaussians
-        gaussian_index = 500
-        if gaussians.means.shape[0] == 0:
-            Logger.log_warning('no gaussians available; skipping contribution export')
-            return
-        if gaussian_index >= gaussians.means.shape[0]:
-            Logger.log_warning(f'gaussian index {gaussian_index} out of range; skipping contribution export')
-            return
-
-        # Save all available attributes for a single Gaussian.
-        sh0 = gaussians.sh_coefficients_0.detach().float().cpu().numpy()
-        gaussian_file = output_dir / f'gaussian_{gaussian_index:06d}.npz'
+        all_views = list(dataset.train()) + self.eval_sphere_views
+        
+        # --- 1. GAUSSIAN ATLAS ---
         np.savez_compressed(
-            str(gaussian_file),
-            primitive_idx=np.int64(gaussian_index),
-            means=gaussians.means[gaussian_index].detach().float().cpu().numpy(),
-            scales=gaussians.scales[gaussian_index].detach().float().cpu().numpy(),
-            raw_scales=gaussians.raw_scales[gaussian_index].detach().float().cpu().numpy(),
-            rotations=gaussians.rotations[gaussian_index].detach().float().cpu().numpy(),
-            raw_rotations=gaussians.raw_rotations[gaussian_index].detach().float().cpu().numpy(),
-            opacities=gaussians.opacities[gaussian_index].detach().float().cpu().numpy(),
-            raw_opacities=gaussians.raw_opacities[gaussian_index].detach().float().cpu().numpy(),
-            sh_coefficients_0=sh0[gaussian_index],
-            sh_coefficients_rest=gaussians.sh_coefficients_rest[gaussian_index].detach().float().cpu().numpy(),
-            colors_from_sh0=(sh0[gaussian_index, 0, :] * 0.28209479177387814 + 0.5).clip(0.0, 1.0),
-            active_sh_degree=np.int64(gaussians.active_sh_degree),
-            max_sh_degree=np.int64(gaussians.max_sh_degree),
+            str(output_dir / 'gaussians_atlas.npz'),
+            means=gaussians.means.detach().float().cpu().numpy(),
+            rotations=gaussians.rotations.detach().float().cpu().numpy(),
+            scales=gaussians.scales.detach().float().cpu().numpy(),
+            opacities=gaussians.opacities.detach().float().cpu().numpy(),
+            sh_coefficients_0=gaussians.sh_coefficients_0.detach().float().cpu().numpy(),
+            sh_coefficients_rest=gaussians.sh_coefficients_rest.detach().float().cpu().numpy(),
+            active_sh_degree=np.array([gaussians.active_sh_degree], dtype=np.int32),
+            max_sh_degree=np.array([gaussians.max_sh_degree], dtype=np.int32),
         )
 
-        all_views_to_process = list(dataset.train()) + self.eval_sphere_views
+        all_contributions = []
+        all_camera_types = []
+        all_camera_widths = []
+        all_camera_heights = []
+        all_camera_focal_x = []
+        all_camera_focal_y = []
+        all_camera_center_x = []
+        all_camera_center_y = []
+        all_camera_near_plane = []
+        all_camera_far_plane = []
+        all_camera_background_colors = []
+        all_camera_c2w = []
+        all_camera_w2c = []
+        all_camera_positions = []
+        all_camera_forwards = []
+        all_camera_rights = []
+        all_camera_ups = []
+        all_camera_indices = []
+        all_frame_indices = []
+        all_global_frame_indices = []
+        all_timestamps = []
+        all_camera_exif = []
+        all_distortion_types = []
+        all_distortion_coefficients = []
+        all_distortion_undistortion_eps = []
+        all_distortion_undistortion_iterations = []
 
-        for view in all_views_to_process:
+        # --- 2. CAMERA- EN CONTRIBUTION-DATA ---
+        for view in all_views:
             outputs = self.renderer.render_image_inference(view=view)
-            contribution = outputs['contribution'][gaussian_index].detach().float().cpu().numpy()
+            all_contributions.append(outputs['contribution'].detach().half().cpu().numpy())
 
             camera = view.camera
-            focal_x = np.float32(getattr(camera, 'focal_x', np.nan))
-            focal_y = np.float32(getattr(camera, 'focal_y', np.nan))
-            center_x = np.float32(getattr(camera, 'center_x', np.nan))
-            center_y = np.float32(getattr(camera, 'center_y', np.nan))
             distortion = getattr(camera, 'distortion', None)
 
-            output_file = output_dir / f'view_{view.global_frame_idx:06d}.npz'
-            np.savez_compressed(
-                str(output_file),
-                frame_idx=np.int64(view.frame_idx),
-                global_frame_idx=np.int64(view.global_frame_idx),
-                camera_index=np.int64(view.camera_index),
-                timestamp=np.float32(view.timestamp),
-                c2w=view.c2w_numpy.astype(np.float32),
-                w2c=view.w2c_numpy.astype(np.float32),
-                position=view.position.detach().float().cpu().numpy(),
-                forward=view.forward.detach().float().cpu().numpy(),
-                right=view.right.detach().float().cpu().numpy(),
-                up=view.up.detach().float().cpu().numpy(),
-                camera_type=np.array([type(camera).__name__], dtype=object),
-                width=np.int64(camera.width),
-                height=np.int64(camera.height),
-                near_plane=np.float32(camera.near_plane),
-                far_plane=np.float32(camera.far_plane),
-                background_color=camera.background_color.detach().float().cpu().numpy(),
-                focal_x=focal_x,
-                focal_y=focal_y,
-                center_x=center_x,
-                center_y=center_y,
-                distortion=np.array([str(distortion)], dtype=object),
-                exif=np.array([view.exif], dtype=object),
-                primitive_idx=np.int64(gaussian_index),
-                contribution=contribution,
-            )
+            all_camera_types.append(type(camera).__name__)
+            all_camera_widths.append(camera.width)
+            all_camera_heights.append(camera.height)
+            all_camera_focal_x.append(getattr(camera, 'focal_x', np.nan))
+            all_camera_focal_y.append(getattr(camera, 'focal_y', np.nan))
+            all_camera_center_x.append(getattr(camera, 'center_x', np.nan))
+            all_camera_center_y.append(getattr(camera, 'center_y', np.nan))
+            all_camera_near_plane.append(camera.near_plane)
+            all_camera_far_plane.append(camera.far_plane)
+            all_camera_background_colors.append(camera.background_color.detach().float().cpu().numpy())
+            all_camera_c2w.append(view.c2w_numpy)
+            all_camera_w2c.append(view.w2c_numpy)
+            all_camera_positions.append(view.position_numpy)
+            all_camera_forwards.append(view.forward_numpy)
+            all_camera_rights.append(view.right_numpy)
+            all_camera_ups.append(view.up_numpy)
+            all_camera_indices.append(view.camera_index)
+            all_frame_indices.append(view.frame_idx)
+            all_global_frame_indices.append(view.global_frame_idx)
+            all_timestamps.append(view.timestamp)
+            all_camera_exif.append(json.dumps(view.exif, default=str, ensure_ascii=True))
+
+            if distortion is None:
+                all_distortion_types.append('')
+                all_distortion_coefficients.append(np.full(8, np.nan, dtype=np.float32))
+                all_distortion_undistortion_eps.append(np.nan)
+                all_distortion_undistortion_iterations.append(-1)
+            else:
+                all_distortion_types.append(type(distortion).__name__)
+                all_distortion_coefficients.append(np.array([
+                    distortion.k1,
+                    distortion.k2,
+                    distortion.k3,
+                    distortion.k4,
+                    distortion.k5,
+                    distortion.k6,
+                    distortion.p1,
+                    distortion.p2,
+                ], dtype=np.float32))
+                all_distortion_undistortion_eps.append(distortion.undistortion_eps)
+                all_distortion_undistortion_iterations.append(distortion.undistortion_iterations)
+
+        np.savez_compressed(
+            str(output_dir / 'camera_data.npz'),
+            contributions=np.stack(all_contributions),
+            camera_types=np.array(all_camera_types, dtype='<U64'),
+            camera_widths=np.asarray(all_camera_widths, dtype=np.int32),
+            camera_heights=np.asarray(all_camera_heights, dtype=np.int32),
+            camera_focal_x=np.asarray(all_camera_focal_x, dtype=np.float32),
+            camera_focal_y=np.asarray(all_camera_focal_y, dtype=np.float32),
+            camera_center_x=np.asarray(all_camera_center_x, dtype=np.float32),
+            camera_center_y=np.asarray(all_camera_center_y, dtype=np.float32),
+            camera_near_plane=np.asarray(all_camera_near_plane, dtype=np.float32),
+            camera_far_plane=np.asarray(all_camera_far_plane, dtype=np.float32),
+            camera_background_colors=np.stack(all_camera_background_colors),
+            camera_c2w=np.stack(all_camera_c2w),
+            camera_w2c=np.stack(all_camera_w2c),
+            camera_positions=np.stack(all_camera_positions),
+            camera_forwards=np.stack(all_camera_forwards),
+            camera_rights=np.stack(all_camera_rights),
+            camera_ups=np.stack(all_camera_ups),
+            camera_indices=np.asarray(all_camera_indices, dtype=np.int32),
+            frame_indices=np.asarray(all_frame_indices, dtype=np.int32),
+            global_frame_indices=np.asarray(all_global_frame_indices, dtype=np.int32),
+            timestamps=np.asarray(all_timestamps, dtype=np.float32),
+            exif_json=np.array(all_camera_exif, dtype=object),
+            distortion_types=np.array(all_distortion_types, dtype='<U64'),
+            distortion_coefficients=np.stack(all_distortion_coefficients),
+            distortion_undistortion_eps=np.asarray(all_distortion_undistortion_eps, dtype=np.float32),
+            distortion_undistortion_iterations=np.asarray(all_distortion_undistortion_iterations, dtype=np.int32),
+        )
+
+        Logger.log_info(f"Export voltooid naar {output_dir}")
