@@ -79,6 +79,10 @@ namespace faster_gs::rasterization {
         const float near_plane,
         const float far_plane,
         const bool proper_antialiasing,
-        const bool to_chw);
+        const bool to_chw,
+        const torch::Tensor& sites,
+        const torch::Tensor& values,
+        const torch::Tensor& num_sites
+        );
 
 }

@@ -142,6 +142,9 @@ def rasterize(
     sh_coefficients_rest: torch.Tensor,
     rasterizer_settings: RasterizerSettings,
     to_chw: bool,
+    sites: torch.Tensor,
+    values: torch.Tensor,
+    num_sites: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
      outputs = _C.inference(
         means,
@@ -152,6 +155,9 @@ def rasterize(
         sh_coefficients_rest,
         *rasterizer_settings.as_tuple(),
         to_chw,
+        sites,
+        values,
+        num_sites
     )
     
      

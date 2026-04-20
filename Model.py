@@ -4,6 +4,7 @@ import math
 
 import torch
 import numpy as np
+import os
 
 import Framework
 from Cameras.Perspective import PerspectiveCamera
@@ -43,6 +44,20 @@ class Gaussians(torch.nn.Module):
         self.distance2filter = 0
         self.lr_means = 0.0
         self.lr_means_scheduler = None
+
+        #SG
+        self.register_buffer('sg_axis', None)
+        self.register_buffer('sg_sharpness', None)
+        self.register_buffer('sg_amplitude', None)
+        self.num_lobes = 0
+
+        #SV
+        self.register_buffer('sv_sites', None)
+        self.register_buffer('sv_values', None)
+        self.register_buffer('num_sites', None)
+
+
+
 
     @property
     def means(self) -> torch.Tensor:
@@ -544,6 +559,19 @@ class FasterGSModel(BaseModel):
         """Builds the model."""
         pretrained = self.num_iterations_trained > 0
         self.gaussians = Gaussians(self.SH_DEGREE, pretrained)
+
+
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # root_dir = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
+        # atlas_path = os.path.join(root_dir, "SG_test", "npz_files", "trained_visibility_4lobes.npz")
+        
+        # # Log het pad even zodat je in de terminal ziet of het klopt
+        # # print(f"DEBUG: Zoeken naar atlas op: {atlas_path}")
+        
+        # self.load_visibility_atlas(atlas_path)
+
+        sv_path = os.path.join(current_dir, "npz_files", "sv_s8_t0_1_temp5.npz")
+        self.load_SV_Values(sv_path)
         return self
 
     def get_ply_dict(self) -> dict[str, np.ndarray | list[str]]:
@@ -557,3 +585,33 @@ class FasterGSModel(BaseModel):
         data['comments'] = [f'SplatRenderMode: {splat_render_mode}', 'Generated with NeRFICG/FasterGS']
 
         return data
+    
+
+
+    def load_visibility_atlas(self, atlas_path: str):
+        """Laadt de getrainde SG-atlas en koppelt deze aan de Gaussians."""
+        if self.gaussians is None:
+            raise Framework.ModelError("Bouw eerst het model voordat je de atlas laadt.")
+            
+        import numpy as np
+        data = np.load(atlas_path)
+        
+        
+        self.gaussians.sg_axis = torch.from_numpy(data["axis"]).float().cuda()
+        self.gaussians.sg_sharpness = torch.from_numpy(data["sharpness"]).float().cuda()
+        self.gaussians.sg_amplitude = torch.from_numpy(data["amplitude"]).float().cuda()
+        self.gaussians.num_lobes = torch.from_numpy(data["num_lobes"]).float().cuda()
+
+    
+    def load_SV_Values(self, sv_path: str):
+        """Laadt de getrainde SG-atlas en koppelt deze aan de Gaussians."""
+        if self.gaussians is None:
+            raise Framework.ModelError("Bouw eerst het model voordat je de atlas laadt.")
+            
+        import numpy as np
+        data = np.load(sv_path)
+        
+        
+        self.gaussians.sv_sites = torch.from_numpy(data["sites"]).float().cuda()
+        self.gaussians.sv_values = torch.from_numpy(data["values"]).float().cuda()
+        self.gaussians.num_sites = torch.from_numpy(data["num_sites"]).float().cuda()

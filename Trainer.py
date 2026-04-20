@@ -6,6 +6,7 @@ from copy import deepcopy
 import torch
 import numpy as np
 import torchvision
+from PIL import Image
 
 import Framework
 from Datasets.Base import BaseDataset, View
@@ -90,7 +91,23 @@ class FasterGSTrainer(GuiTrainer):
     def add_cameras_sphere(self, _, dataset: 'BaseDataset') -> None:
 
         n_points = 2000
-        sphere_radius = 5.0  # Distance of cameras from origin
+        target_fill_ratio = 0.9
+        base_cam = dataset.default_camera
+
+        # Derive camera radius from the AABB diagonal so the scene spans ~90% of the screen diagonal.
+        bbox = dataset.bounding_box
+        bbox_diag = torch.linalg.norm(bbox.size).item()
+        scene_radius = max(0.5 * bbox_diag, 1.0e-6)
+
+        half_width = 0.5 * float(base_cam.width)
+        half_height = 0.5 * float(base_cam.height)
+        tan_half_fov_diag = np.sqrt((half_width / float(base_cam.focal_x)) ** 2 + (half_height / float(base_cam.focal_y)) ** 2)
+        sphere_radius = scene_radius / max(target_fill_ratio * tan_half_fov_diag, 1.0e-6)
+        world_origin = np.zeros(3, dtype=np.float64)
+
+        Logger.log_info(
+            f'sphere camera radius set to {sphere_radius:.3f} (bbox diagonal={bbox_diag:.3f}, target_fill={target_fill_ratio:.2f})'
+        )
       
         # 1. Vectorized Fibonacci Sphere Generation
         i = np.arange(n_points)
@@ -108,22 +125,20 @@ class FasterGSTrainer(GuiTrainer):
         camera_positions = unit_coordinates * sphere_radius
 
         # 2. Camera Setup
-        base_cam = dataset.default_camera
-
         num_train_views = len(dataset.train())
 
         for i, eye in enumerate(camera_positions):
             # Maak een nieuwe camera aan (lokaal)
             new_cam = deepcopy(base_cam)
-            new_cam.shared_settings.far_plane = sphere_radius + 10.0
+            new_cam.shared_settings.far_plane = sphere_radius + scene_radius + 10.0
             new_cam.shared_settings.near_plane = 0.1
             
             # Bereken c2w zoals je al deed
-            up = np.array([0, 1, 0], dtype=np.float64)
+            up = np.array([0, -1, 0], dtype=np.float64)
             if abs(eye[1] / sphere_radius) > 0.9: 
                 up = np.array([0, 0, 1], dtype=np.float64)
 
-            c2w = look_at(eye, np.zeros(3, dtype=np.float64), up)
+            c2w = look_at(eye, world_origin, up)
 
             # Maak de View aan
             view = View(
@@ -279,6 +294,10 @@ class FasterGSTrainer(GuiTrainer):
         output_dir = self.output_directory / 'view_contributions'
         output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Map voor de renders aanmaken
+        image_dir = output_dir / 'renders'
+        image_dir.mkdir(exist_ok=True)
+
         gaussians = self.model.gaussians
         all_views = list(dataset.train()) + self.eval_sphere_views
         
@@ -325,6 +344,17 @@ class FasterGSTrainer(GuiTrainer):
         # --- 2. CAMERA- EN CONTRIBUTION-DATA ---
         for view in all_views:
             outputs = self.renderer.render_image_inference(view=view)
+            
+            # --- OPSLAAN ALS PNG ---
+            rgb_tensor = outputs['rgb']
+            if rgb_tensor.shape[0] == 3:
+                rgb_tensor = rgb_tensor.permute(1, 2, 0)
+            
+            rgb_np = (rgb_tensor.detach().cpu().clamp(0, 1).numpy() * 255).astype(np.uint8)
+            img = Image.fromarray(rgb_np)
+            img.save(image_dir / f"render_{view.global_frame_idx:05d}.png")
+            # ----------------------
+
             all_contributions.append(outputs['contribution'].detach().half().cpu().numpy())
 
             camera = view.camera

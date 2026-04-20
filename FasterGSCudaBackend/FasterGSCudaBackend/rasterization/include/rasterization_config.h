@@ -14,6 +14,7 @@ namespace faster_gs::rasterization::config {
     DEF bool original_opacity_interpretation = true; // whether to interpret opacity as part of the Gaussian as in 3DGS or as a separate property
     DEF float one_minus_alpha_eps = 1e-6f;
     DEF float transmittance_threshold = 1e-4f;
+    DEF float sv_visibility_threshold = 0.1f;
     // choose truncation preset at compile time
     #define TRUNCATION_MODE 0 // 0: 3.33 sigma (original), 1: 1 sigma, 2: 2 sigma, 3: 3 sigma, 4: 4 sigma
     #if TRUNCATION_MODE == 0

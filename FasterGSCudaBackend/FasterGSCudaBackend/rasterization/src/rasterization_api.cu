@@ -197,7 +197,11 @@ faster_gs::rasterization::inference_wrapper(
     const float near_plane,
     const float far_plane,
     const bool proper_antialiasing,
-    const bool to_chw)
+    const bool to_chw,
+    const torch::Tensor& sites,
+    const torch::Tensor& values,
+    const torch::Tensor& num_sites
+    )
 {
     const int n_primitives = means.size(0);
     const int total_sh_bases = sh_coefficients_rest.size(1);
@@ -241,7 +245,10 @@ faster_gs::rasterization::inference_wrapper(
         near_plane,
         far_plane,
         proper_antialiasing,
-        to_chw
+        to_chw,
+        reinterpret_cast<float3*>(sites.contiguous().data_ptr<float>()),
+        values.contiguous().data_ptr<float>(),
+        num_sites.contiguous().data_ptr<float>()
     );
 
     return std::make_tuple(image, contribution);

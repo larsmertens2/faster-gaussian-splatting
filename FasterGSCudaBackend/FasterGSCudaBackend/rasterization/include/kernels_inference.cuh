@@ -9,6 +9,10 @@
 #include <cooperative_groups.h>
 namespace cg = cooperative_groups;
 
+
+__device__ uint g_sv_culled_count = 0;
+
+
 namespace faster_gs::rasterization::kernels::inference {
 
     __global__ void preprocess_cu(
@@ -16,6 +20,9 @@ namespace faster_gs::rasterization::kernels::inference {
         const float3* __restrict__ scales,
         const float4* __restrict__ rotations,
         const float* __restrict__ opacities,
+        const float3* __restrict__ sites,
+        const float* __restrict__ values,
+        const float* __restrict__ num_sites,
         const float3* __restrict__ sh_coefficients_0,
         const float3* __restrict__ sh_coefficients_rest,
         const float4* __restrict__ w2c,
@@ -71,6 +78,36 @@ namespace faster_gs::rasterization::kernels::inference {
         const float raw_opacity = opacities[primitive_idx];
         float opacity = sigmoid(raw_opacity);
         if (config::original_opacity_interpretation && opacity < config::min_alpha_threshold) active = false;
+
+        if (active) {
+            // Per-view SV visibility: skip expensive preprocess work for low-visibility gaussians.
+            const int n_sites = max(0, __float2int_rn(num_sites[0]));
+            if (n_sites > 0) {
+                const float3 raw_dir = mean3d - cam_position[0];
+                const float3 dir = normalize(raw_dir);
+                float exp_sum = 0.0f;
+                float visibility = 0.0f;
+
+                for (int site_idx = 0; site_idx < n_sites; ++site_idx) {
+                    const uint site_idx_flat = primitive_idx * n_sites + site_idx;
+                    const float3 site = sites[site_idx_flat];
+                    const float logit = dot(dir, site);
+                    const float w = expf(logit);
+                    exp_sum += w;
+                    const float ck = values[site_idx_flat];
+                    visibility += w * ck;
+                }
+
+                if (exp_sum > 0.0f) visibility /= exp_sum;
+                else visibility = 0.0f;
+
+
+                if (visibility < 0.1f) {
+                    active = false;
+                    atomicAdd(&g_sv_culled_count, 1);
+                }
+            }
+        }
 
         // compute 3d covariance from scale and rotation
         const float3 raw_scale = scales[primitive_idx];
@@ -329,6 +366,19 @@ namespace faster_gs::rasterization::kernels::inference {
             }
             warp.sync();
         }
+
+        // Print SV culling stats once per launch.
+        // if (thread_idx == 0) {
+        //     const uint total_considered = n_visible_primitives + g_sv_culled_count;
+        //     const float culled_ratio = total_considered > 0 ? (100.0f * static_cast<float>(g_sv_culled_count) / static_cast<float>(total_considered)) : 0.0f;
+        //     printf("--- SV CULLING STATS ---\n");
+        //     printf("Gaussians culled (SV): %u\n", g_sv_culled_count);
+        //     printf("Gaussians considered (visible + culled): %u\n", total_considered);
+        //     printf("Culled ratio: %.2f%%\n", culled_ratio);
+
+        //     // Reset the counter for the next frame/view.
+        //     g_sv_culled_count = 0; 
+        // }
     }
 
     template <typename KeyT>
