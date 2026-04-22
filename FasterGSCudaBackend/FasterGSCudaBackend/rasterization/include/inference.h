@@ -36,7 +36,11 @@ namespace faster_gs::rasterization {
         const bool to_chw,
         const float3* sites,
         const float* values,
-        const float* num_sites
+        const float* num_sites,
+        const float3* axis,
+        const float* sharpness,
+        const float* amplitude,
+        const float* num_lobes
 
     );
 

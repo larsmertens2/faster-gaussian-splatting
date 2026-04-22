@@ -82,7 +82,11 @@ namespace faster_gs::rasterization {
         const bool to_chw,
         const torch::Tensor& sites,
         const torch::Tensor& values,
-        const torch::Tensor& num_sites
+        const torch::Tensor& num_sites,
+        const torch::Tensor& axis,
+        const torch::Tensor& sharpness,
+        const torch::Tensor& amplitude,
+        const torch::Tensor& num_lobes
         );
 
 }

@@ -144,7 +144,11 @@ def rasterize(
     to_chw: bool,
     sites: torch.Tensor,
     values: torch.Tensor,
-    num_sites: torch.Tensor
+    num_sites: torch.Tensor,
+    axis: torch.Tensor,
+    sharpness: torch.Tensor,
+    amplitude: torch.Tensor,
+    num_lobes: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
      outputs = _C.inference(
         means,
@@ -157,7 +161,11 @@ def rasterize(
         to_chw,
         sites,
         values,
-        num_sites
+        num_sites,
+        axis,
+        sharpness,
+        amplitude,
+        num_lobes
     )
     
      

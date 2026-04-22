@@ -85,6 +85,8 @@ class FasterGSRenderer(BaseRenderer):
     @torch.no_grad()
     def render_image_inference(self, view: View, to_chw: bool = False) -> dict[str, torch.Tensor]:
         """Renders an image for a given view with SV or SG Visibility Filtering."""
+        device = self.model.gaussians.means.device
+        total_count = self.model.gaussians.means.shape[0]
     
         # --- OPTIE B: SPHERICAL GAUSSIANS (SG) ---
         if hasattr(self.model.gaussians, 'sg_axis') and self.model.gaussians.sg_axis is not None and False:
@@ -93,13 +95,16 @@ class FasterGSRenderer(BaseRenderer):
             curr_sharpness = self.model.gaussians.sg_sharpness[:num_sg]
             curr_amplitude = self.model.gaussians.sg_amplitude[:num_sg]
 
-            # Dot product tussen camera-kijkrichting en SG-lobben
-            dot = torch.einsum('d,nld->nl', cam_pos, curr_axis)
+            # Richting van camera naar Gaussian voor SG-maskering
+            cam_pos = view.position.to(device)
+            gauss_pos = self.model.gaussians.means[:num_sg]
+            view_dirs = torch.nn.functional.normalize(gauss_pos - cam_pos.unsqueeze(0), dim=-1)
+            dot = torch.einsum('nd,nld->nl', view_dirs, curr_axis)
             activations = curr_amplitude * torch.exp(curr_sharpness * (dot - 1.0))
             visibility_scores = torch.sum(activations, dim=1)
             
             mask = torch.ones(total_count, dtype=torch.bool, device=device)
-            mask[:num_sg] = visibility_scores > 0.001 # SG drempel is vaak lager
+            mask[:num_sg] = visibility_scores > 0.6 
 
         # --- OPTIE C: GEEN FILTERING ---
         elif False:
@@ -114,19 +119,25 @@ class FasterGSRenderer(BaseRenderer):
         #print(f"Overgebleven: {num_kept}")
 
 
-        #self.model.gaussians.num_sites.fill_(0)
+        self.model.gaussians.num_sites.fill_(0)
         image, contribution = rasterize(
             means=self.model.gaussians.means,
             scales=self.model.gaussians.raw_scales,
-            rotations=self.model.gaussians.raw_rotations ,
+            rotations=self.model.gaussians.raw_rotations,
             opacities=self.model.gaussians.raw_opacities,
             sh_coefficients_0=self.model.gaussians.sh_coefficients_0,
             sh_coefficients_rest=self.model.gaussians.sh_coefficients_rest,
             rasterizer_settings=extract_settings(view, self.model.gaussians.active_sh_bases, view.camera.background_color, self.PROPER_ANTIALIASING),
             to_chw=to_chw,
+            #-----SV-------
             sites = self.model.gaussians.sv_sites,
             values = self.model.gaussians.sv_values,
-            num_sites = self.model.gaussians.num_sites  
+            num_sites = self.model.gaussians.num_sites,  
+            #-----SG-------
+            axis = self.model.gaussians.sg_axis,
+            sharpness = self.model.gaussians.sg_sharpness,
+            amplitude = self.model.gaussians.sg_amplitude,
+            num_lobes = self.model.gaussians.num_lobes
         )
 
         if not to_chw and image.shape[0] == 3:

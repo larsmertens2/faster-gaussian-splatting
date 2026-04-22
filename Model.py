@@ -571,6 +571,8 @@ class FasterGSModel(BaseModel):
         # self.load_visibility_atlas(atlas_path)
 
         sv_path = os.path.join(current_dir, "npz_files", "sv_s8_t0_1_temp5.npz")
+        sg_path = os.path.join(current_dir, "npz_files", "trained_sg_visibility.npz")
+        self.load_SG_Values(sg_path)
         self.load_SV_Values(sv_path)
         return self
 
@@ -588,7 +590,7 @@ class FasterGSModel(BaseModel):
     
 
 
-    def load_visibility_atlas(self, atlas_path: str):
+    def load_SG_Values(self, atlas_path: str):
         """Laadt de getrainde SG-atlas en koppelt deze aan de Gaussians."""
         if self.gaussians is None:
             raise Framework.ModelError("Bouw eerst het model voordat je de atlas laadt.")

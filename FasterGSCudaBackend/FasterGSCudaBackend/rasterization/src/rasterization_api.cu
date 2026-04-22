@@ -200,7 +200,11 @@ faster_gs::rasterization::inference_wrapper(
     const bool to_chw,
     const torch::Tensor& sites,
     const torch::Tensor& values,
-    const torch::Tensor& num_sites
+    const torch::Tensor& num_sites,
+    const torch::Tensor& axis,
+    const torch::Tensor& sharpness,
+    const torch::Tensor& amplitude,
+    const torch::Tensor& num_lobes
     )
 {
     const int n_primitives = means.size(0);
@@ -248,7 +252,11 @@ faster_gs::rasterization::inference_wrapper(
         to_chw,
         reinterpret_cast<float3*>(sites.contiguous().data_ptr<float>()),
         values.contiguous().data_ptr<float>(),
-        num_sites.contiguous().data_ptr<float>()
+        num_sites.contiguous().data_ptr<float>(),
+        reinterpret_cast<float3*>(axis.contiguous().data_ptr<float>()),
+        sharpness.contiguous().data_ptr<float>(),
+        amplitude.contiguous().data_ptr<float>(),
+        num_lobes.contiguous().data_ptr<float>()
     );
 
     return std::make_tuple(image, contribution);

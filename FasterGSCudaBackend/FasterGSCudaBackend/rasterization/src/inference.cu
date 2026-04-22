@@ -38,7 +38,12 @@ void faster_gs::rasterization::inference(
     const bool to_chw,
     const float3* sites,
     const float* values,
-    const float* num_sites)
+    const float* num_sites,
+    const float3* axis,
+    const float* sharpness,
+    const float* amplitude,
+    const float* num_lobes
+    )
 {
     const dim3 grid(div_round_up(width, config::tile_width), div_round_up(height, config::tile_height), 1);
     const dim3 block(config::tile_width, config::tile_height, 1);
@@ -73,6 +78,10 @@ void faster_gs::rasterization::inference(
         sites,
         values,
         num_sites,
+        axis,
+        sharpness,
+        amplitude,
+        num_lobes,
         sh_coefficients_0,
         sh_coefficients_rest,
         w2c,

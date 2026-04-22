@@ -11,6 +11,7 @@ namespace cg = cooperative_groups;
 
 
 __device__ uint g_sv_culled_count = 0;
+__device__ uint g_sv_input_count = 0;
 
 
 namespace faster_gs::rasterization::kernels::inference {
@@ -23,6 +24,10 @@ namespace faster_gs::rasterization::kernels::inference {
         const float3* __restrict__ sites,
         const float* __restrict__ values,
         const float* __restrict__ num_sites,
+        const float3* __restrict__ axis,
+        const float* __restrict__ sharpness,
+        const float* __restrict__ amplitude,
+        const float* __restrict__ num_lobes,
         const float3* __restrict__ sh_coefficients_0,
         const float3* __restrict__ sh_coefficients_rest,
         const float4* __restrict__ w2c,
@@ -83,6 +88,7 @@ namespace faster_gs::rasterization::kernels::inference {
             // Per-view SV visibility: skip expensive preprocess work for low-visibility gaussians.
             const int n_sites = max(0, __float2int_rn(num_sites[0]));
             if (n_sites > 0) {
+                atomicAdd(&g_sv_input_count, 1);
                 const float3 raw_dir = mean3d - cam_position[0];
                 const float3 dir = normalize(raw_dir);
                 float exp_sum = 0.0f;
@@ -97,12 +103,47 @@ namespace faster_gs::rasterization::kernels::inference {
                     const float ck = values[site_idx_flat];
                     visibility += w * ck;
                 }
-
+                
                 if (exp_sum > 0.0f) visibility /= exp_sum;
                 else visibility = 0.0f;
 
 
-                if (visibility < 0.1f) {
+                if (visibility < 0.7f) {
+                    active = false;
+                    atomicAdd(&g_sv_culled_count, 1);
+                }
+            }
+
+
+
+            const int n_lobes = max(0, __float2int_rn(num_lobes[0]));
+            if (n_lobes > 0) {
+                atomicAdd(&g_sv_input_count, 1);
+
+                // 1. Bereken de genormaliseerde view direction
+                const float3 raw_dir = mean3d - cam_position[0];
+                const float dist = sqrtf(raw_dir.x * raw_dir.x + raw_dir.y * raw_dir.y + raw_dir.z * raw_dir.z) + 1e-7f;
+                const float3 dir = { raw_dir.x / dist, raw_dir.y / dist, raw_dir.z / dist };
+
+                float visibility = 0.0f;
+
+                // 2. Sommeer de bijdrage van alle SG lobes
+                for (int l = 0; l < n_lobes; ++l) {
+                    // Indexering afhankelijk van hoe je de data hebt opgeslagen
+                    const uint lobe_idx = primitive_idx * n_lobes + l; 
+
+                    const float3 mu = axis[lobe_idx];
+                    const float lambda = sharpness[lobe_idx];
+                    const float amp = amplitude[lobe_idx];
+
+                    // SG evaluatie: amp * exp(sharpness * (dot(dir, axis) - 1))
+                    const float cos_theta = dir.x * mu.x + dir.y * mu.y + dir.z * mu.z;
+                    const float exponent = lambda * (cos_theta - 1.0f);
+                    
+                    visibility += amp * expf(exponent);
+                }
+
+                if (visibility < 0.5f) {
                     active = false;
                     atomicAdd(&g_sv_culled_count, 1);
                 }
@@ -367,17 +408,24 @@ namespace faster_gs::rasterization::kernels::inference {
             warp.sync();
         }
 
-        // Print SV culling stats once per launch.
+        //Print SV culling stats once per launch.
         // if (thread_idx == 0) {
-        //     const uint total_considered = n_visible_primitives + g_sv_culled_count;
-        //     const float culled_ratio = total_considered > 0 ? (100.0f * static_cast<float>(g_sv_culled_count) / static_cast<float>(total_considered)) : 0.0f;
-        //     printf("--- SV CULLING STATS ---\n");
-        //     printf("Gaussians culled (SV): %u\n", g_sv_culled_count);
-        //     printf("Gaussians considered (visible + culled): %u\n", total_considered);
-        //     printf("Culled ratio: %.2f%%\n", culled_ratio);
+        //     const uint sv_input = g_sv_input_count;
+        //     const uint sv_culled = g_sv_culled_count;
+        //     const uint sv_survived = (sv_input > sv_culled) ? (sv_input - sv_culled) : 0;
+            
+        //     const float culled_percentage = sv_input > 0 ? (100.0f * (float)sv_culled / (float)sv_input) : 0.0f;
 
-        //     // Reset the counter for the next frame/view.
-        //     g_sv_culled_count = 0; 
+        //     printf("\n--- SV CULLING ANALYSE ---\n");
+        //     printf("Gaussians aangeboden aan SV:  %u\n", sv_input);
+        //     printf("Gaussians weggegooid door SV: %u\n", sv_culled);
+        //     printf("Gaussians overgebleven:       %u\n", sv_survived);
+        //     printf("Effectieve SV Cull Ratio:     %.2f%%\n", culled_percentage);
+        //     printf("---------------------------\n");
+
+        //     // Reset de tellers voor het volgende frame
+        //     g_sv_input_count = 0;
+        //     g_sv_culled_count = 0;
         // }
     }
 
